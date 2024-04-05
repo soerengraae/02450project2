@@ -2,12 +2,12 @@
 This script compares the performance of the baseline model,
 the multi-regression model, and the method-2 model.
 
-The comparison is made using the same dataset and cross-validation strategy.
+The comparison is made using the same dataset and a two-level cross-validation strategy.
 This ensures a fair comparison between the two models.
 '''
 
-import model_cla_baseline
-import model_cla_mulreg
+import cla_baseline
+import cla_mulreg
 from data_load import getTargets
 from data_standardization import X as X_num, missing_values as missing_values_num
 from data_encoding import X as X_cat, missing_values as missing_values_cat
@@ -28,33 +28,86 @@ y = y.reset_index(drop=True)
 
 # Split dataset
 K = 10
-CV = KFold(n_splits=K)
+outer_cv = KFold(n_splits=K)
+
+# Define the strength values to be tested in range(0, 5) with a step of 0.22
+strengths = np.arange(0.02, 5, 0.22)
+print(f'Strengths: {strengths}')
 
 baseline_error_rates = []
 mulreg_error_rates = []
-for train_index, test_index in CV.split(X):
-    X_train, X_test = X.iloc[train_index], X.iloc[test_index]
-    y_train, y_test = y.iloc[train_index], y.iloc[test_index]
+strengths_best = []
 
-    yhat_baseline = model_cla_baseline.predict(y_test, y_train)
+i = 0
+for outer_train_index, outer_test_index in outer_cv.split(X):
+    i += 1
+    print(f'Outer Fold {i}/{K}')
+    
+    outer_X_train, outer_X_test = X.iloc[outer_train_index], X.iloc[outer_test_index]
+    outer_y_train, outer_y_test = y.iloc[outer_train_index], y.iloc[outer_test_index]
 
-    # Done to avoid DataConversionWarning
-    y_train = np.ravel(y_train)
-    y_test = np.ravel(y_test)
+    inner_cv = KFold(n_splits=K)
 
-    yhat_mulreg = model_cla_mulreg.predict(X_train, X_test, y_train)
+    inner_mulreg_error_rate_best = np.inf
+    strength_best = 0
+    for strength in strengths:
+        # print(f'Testing strength: {strength}')
+        inner_mulreg_error_rates = []
+        for inner_train_index, inner_test_index in inner_cv.split(outer_X_train):
+            '''
+            The inner loop is used for hyperparameter tuning
+            for the multi-regression model and the method-2 model
+            '''
 
-    baseline_error_rate = np.mean(yhat_baseline != y_test).round(2)
-    mulreg_error_rate = np.mean(yhat_mulreg != y_test).round(2)
+            # Inner fold datasets are derived from the outer fold
+            inner_X_train, inner_X_test = outer_X_train.iloc[inner_train_index], outer_X_train.iloc[inner_test_index]
+            inner_y_train, inner_y_test = outer_y_train.iloc[inner_train_index], outer_y_train.iloc[inner_test_index]
 
+            # Done to avoid DataConversionWarning
+            inner_y_train = np.ravel(inner_y_train)
+            inner_y_test = np.ravel(inner_y_test)
+            
+            # The cla_mulreg.fit() function creates our multinomial regression model,
+            # fits it to the training data, and returns the model.
+            model_mulreg = cla_mulreg.fit(inner_X_train, inner_y_train, regularization=strength)
+
+            # The model is then used to predict the classes of the test data.
+            yhat_mulreg = cla_mulreg.predict(model_mulreg, inner_X_test)
+
+            # The error rate for the multi-regression model is calculated.
+            inner_mulreg_error_rate = np.mean(yhat_mulreg != inner_y_test).round(2)
+            inner_mulreg_error_rates.append(inner_mulreg_error_rate)
+
+        inner_mulreg_error_rate_average = np.mean(inner_mulreg_error_rates)
+        if inner_mulreg_error_rate_average < inner_mulreg_error_rate_best:
+            inner_mulreg_error_rate_best = inner_mulreg_error_rate_average
+            strength_best = strength
+
+    # The baseline model is only tested on the outer test data
+    # as the baseline model does not require hyperparameter tuning
+    yhat_baseline = cla_baseline.predict(outer_y_test, outer_y_train)
+    baseline_error_rate = np.mean(yhat_baseline != outer_y_test).round(2)
     baseline_error_rates.append(baseline_error_rate)
-    mulreg_error_rates.append(mulreg_error_rate)
+    
+    # Done to avoid DataConversionWarning
+    outer_y_train = np.ravel(outer_y_train)
+    outer_y_test = np.ravel(outer_y_test)
 
-# Create table with error rates for each fold and model
+    # The best strength is used to create a new model
+    # that is trained on the outer training data, and tested on the outer test data
+    model_mulreg_best = cla_mulreg.fit(outer_X_train, outer_y_train, regularization=strength_best)
+    yhat_mulreg = cla_mulreg.predict(model_mulreg_best, outer_X_test)
+    yhat_mulreg = yhat_mulreg.reshape(-1, 1) # This ensures that the shape of yhat_mulreg is the same as outer_y_test (n, 1)
+    mulreg_error_rate = np.mean(yhat_mulreg != outer_y_test).round(2)
+    mulreg_error_rates.append(mulreg_error_rate)
+    strengths_best.append(strength_best)
+
+# Create table with outer fold error rates for each fold and model
 error_rates = pd.DataFrame({
     'Outer Fold': range(1, K+1),
-    'Baseline': baseline_error_rates,
-    'Multi. Reg.': mulreg_error_rates
+    'Baseline E.R.': baseline_error_rates,
+    'Multi. Reg. E.R.': mulreg_error_rates,
+    'Multi. Reg. Strength': strengths_best
 })
 
 print(error_rates.to_string(index=False))
