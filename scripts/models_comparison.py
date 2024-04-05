@@ -8,21 +8,30 @@ This ensures a fair comparison between the two models.
 
 import cla_baseline
 import cla_mulreg
-from data_load import getTargets
-from data_standardization import X as X_num, missing_values as missing_values_num
-from data_encoding import X as X_cat, missing_values as missing_values_cat
+from data_fetch import automobile_id, getTargets, getFeatures, missingValues
+import data_transformation
+import data_encoding
 import pandas as pd
 from sklearn.model_selection import KFold
 import numpy as np
 
+# Gather the data to be used
+X_cat = data_encoding.encode(getFeatures(automobile_id)['make'])
+missing_values_cat = missingValues(X_cat)
+
+X_num = data_transformation.transform(getFeatures(automobile_id)[['engine-size', 'horsepower', 'price']])
+missing_values_num = missingValues(X_num)
+
 missing_values = list(set(missing_values_num).union(set(missing_values_cat)))
 
 X = pd.concat([X_num, X_cat], axis=1)
-y = getTargets()
+y = getTargets(automobile_id)
 
+# Drop missing values
 X = X.drop(missing_values)
 y = y.drop(missing_values)
 
+# Reset the index so it goes from 0 to n-1
 X = X.reset_index(drop=True)
 y = y.reset_index(drop=True)
 
@@ -31,8 +40,7 @@ K = 10
 outer_cv = KFold(n_splits=K)
 
 # Define the strength values to be tested in range(0.02, 5) with a step of 0.22
-strengths = np.arange(0.02, 5, 0.22)
-print(f'Strengths: {strengths}')
+strengths = np.arange(0.01, 0.5, 0.01)
 
 baseline_error_rates = []
 mulreg_error_rates = []
@@ -46,6 +54,7 @@ for outer_train_index, outer_test_index in outer_cv.split(X):
     outer_X_train, outer_X_test = X.iloc[outer_train_index], X.iloc[outer_test_index]
     outer_y_train, outer_y_test = y.iloc[outer_train_index], y.iloc[outer_test_index]
 
+    # Create inner folds
     inner_cv = KFold(n_splits=K)
 
     inner_mulreg_error_rate_best = np.inf
@@ -59,7 +68,7 @@ for outer_train_index, outer_test_index in outer_cv.split(X):
             for the multi-regression model and the method-2 model
             '''
 
-            # Inner fold datasets are derived from the outer fold
+            # Inner fold sets are derived from the outer fold
             inner_X_train, inner_X_test = outer_X_train.iloc[inner_train_index], outer_X_train.iloc[inner_test_index]
             inner_y_train, inner_y_test = outer_y_train.iloc[inner_train_index], outer_y_train.iloc[inner_test_index]
 
@@ -73,6 +82,7 @@ for outer_train_index, outer_test_index in outer_cv.split(X):
 
             # The model is then used to predict the classes of the test data.
             yhat_mulreg = cla_mulreg.predict(model_mulreg, inner_X_test)
+            yhat_mulreg = yhat_mulreg.reshape(-1, 1) # This ensures that the shape of yhat_mulreg is the same as inner_y_test (n, 1)
 
             # The error rate for the multi-regression model is calculated.
             inner_mulreg_error_rate = np.mean(yhat_mulreg != inner_y_test).round(2)
@@ -95,9 +105,11 @@ for outer_train_index, outer_test_index in outer_cv.split(X):
 
     # The best strength is used to create a new model
     # that is trained on the outer training data, and tested on the outer test data
-    model_mulreg_best = cla_mulreg.fit(outer_X_train, outer_y_train, regularization=strength_best)
-    yhat_mulreg = cla_mulreg.predict(model_mulreg_best, outer_X_test)
+    model_mulreg = cla_mulreg.fit(outer_X_train, outer_y_train, regularization=strength_best)
+    yhat_mulreg = cla_mulreg.predict(model_mulreg, outer_X_test)
     yhat_mulreg = yhat_mulreg.reshape(-1, 1) # This ensures that the shape of yhat_mulreg is the same as outer_y_test (n, 1)
+    
+    # The error rate for the multi-regression model is calculated.
     mulreg_error_rate = np.mean(yhat_mulreg != outer_y_test).round(2)
     mulreg_error_rates.append(mulreg_error_rate)
     strengths_best.append(strength_best)
