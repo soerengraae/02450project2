@@ -30,7 +30,7 @@ y = y.reset_index(drop=True)
 K = 10
 outer_cv = KFold(n_splits=K)
 
-# Define the strength values to be tested in range(0, 5) with a step of 0.22
+# Define the strength values to be tested in range(0.02, 5) with a step of 0.22
 strengths = np.arange(0.02, 5, 0.22)
 print(f'Strengths: {strengths}')
 
