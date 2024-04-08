@@ -1,1 +1,1 @@
-print("Hey there! I suck dick")
+print("Hey there! I suck dicks")
