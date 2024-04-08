@@ -3,29 +3,31 @@ This script compares the performance of the baseline model,
 the multi-regression model, and the method-2 model.
 
 The comparison is made using the same dataset and a two-level cross-validation strategy.
-This ensures a fair comparison between the two models.
+This ensures a fair comparison between the three models, when evaluated on the outer fold.
 '''
 
 import cla_baseline
 import cla_mulreg
-from data_fetch import automobile_id, getTargets, getFeatures, missingValues
+from data_fetch import automobile_id, getTargets, getFeatures, missingValues, categorical_features, numerical_features
 import data_transformation
 import data_encoding
 import pandas as pd
 from sklearn.model_selection import KFold
 import numpy as np
+import torch
+from dtuimldmtools import train_neural_net
 
 # Gather the data to be used
-X_cat = data_encoding.encode(getFeatures(automobile_id)['make'])
+X_cat = data_encoding.encode(getFeatures(automobile_id)[categorical_features])
 missing_values_cat = missingValues(X_cat)
 
-X_num = data_transformation.transform(getFeatures(automobile_id)[['engine-size', 'horsepower', 'price']])
+X_num = data_transformation.transform(getFeatures(automobile_id)[numerical_features])
 missing_values_num = missingValues(X_num)
-
-missing_values = list(set(missing_values_num).union(set(missing_values_cat)))
 
 X = pd.concat([X_num, X_cat], axis=1)
 y = getTargets(automobile_id)
+
+missing_values = missingValues(X)
 
 # Drop missing values
 X = X.drop(missing_values)
@@ -35,46 +37,118 @@ y = y.drop(missing_values)
 X = X.reset_index(drop=True)
 y = y.reset_index(drop=True)
 
-# Split dataset
-K = 10
-outer_cv = KFold(n_splits=K)
+# Convert X and y to numpy arrays for easier use with torch
+X = X.to_numpy()
+y = y.to_numpy()
 
-# Define the strength values to be tested in range(0.02, 5) with a step of 0.22
-strengths = np.arange(0.01, 0.5, 0.01)
+y = y + 3 # Adjust to have no negative values
+y = np.reshape(y, y.size) # Reshape to 1d array
+
+# Convert booleans in X to floats, must be done to use with torch
+X = X.astype(float)
+
+# Split dataset
+K = 5
+outer_cv = KFold(n_splits=K, shuffle=True)
+
+# Define the strength values to be tested
+strengths = np.power(10.0, range(-5, 9)) # From 10^-5 to 10^8
+
+N, M = X.shape
+C = 7 # Number of classes len({-3, -2, -1, 0, 1, 2, 3})
+
+n_hidden_units = np.arange(14, 26, 2) # 14 to 24 hidden units
+loss_fn = torch.nn.CrossEntropyLoss()
+max_iter = 10000
+n_replicates = 2
 
 baseline_error_rates = []
 mulreg_error_rates = []
 strengths_best = []
+ann_error_rates = []
+n_hidden_units_best = []
 
-i = 0
-for outer_train_index, outer_test_index in outer_cv.split(X):
-    i += 1
-    print(f'Outer Fold {i}/{K}')
+for i, (outer_train_index, outer_test_index) in enumerate(outer_cv.split(X, y)):
+    print(f'Outer Fold {i+1}/{K}')
     
-    outer_X_train, outer_X_test = X.iloc[outer_train_index], X.iloc[outer_test_index]
-    outer_y_train, outer_y_test = y.iloc[outer_train_index], y.iloc[outer_test_index]
+    outer_X_train, outer_X_test = X[outer_train_index, :], X[outer_test_index, :]
+    outer_y_train, outer_y_test = y[outer_train_index], y[outer_test_index]
 
     # Create inner folds
-    inner_cv = KFold(n_splits=K)
+    inner_cv = KFold(n_splits=K, shuffle=True)
 
+    print('Training ANN model...')
+    inner_ann_error_rate_best = np.inf
+    for n_hidden_unit in n_hidden_units:
+        print(f'Hidden Units: {n_hidden_unit}')
+        model = lambda: torch.nn.Sequential(
+            torch.nn.Linear(M, n_hidden_unit),  # M features to n hidden units
+            torch.nn.ReLU(),  # 1st transfer function,
+            torch.nn.Linear(n_hidden_unit, n_hidden_unit),  # n hidden units to n hidden units
+            torch.nn.ReLU(),  # 2nd transfer function,
+            torch.nn.Linear(n_hidden_unit, C),  # n hidden units to C output neuron, C = categories
+            torch.nn.Softmax(dim=1),  # final tranfer function
+        )
+
+        inner_ann_error_rate = []
+        for k, (inner_train_index, inner_test_index) in enumerate(inner_cv.split(outer_X_train, outer_y_train)):
+            '''
+            The inner loop is used for hyperparameter tuning the ANN model
+            '''
+
+            print(f'Inner Fold {k+1}/{K}')
+            # Extract training and test set for current CV fold, convert to tensors
+            X_train = outer_X_train[inner_train_index, :]
+            X_test = outer_X_train[inner_test_index, :]
+
+            y_train = outer_y_train[inner_train_index]
+
+            y_test = outer_y_train[inner_test_index]
+
+            # Train the net on training data
+            net, _, _ = train_neural_net(
+                model,
+                loss_fn,
+                X=torch.tensor(X_train, dtype=torch.float),
+                y=torch.tensor(y_train, dtype=torch.long).view(-1),
+                n_replicates=n_replicates,
+                max_iter=max_iter,
+            )
+
+            # Determine probability of each class using trained network
+            softmax_logits = net(torch.tensor(X_test, dtype=torch.float))
+            # Get the estimated class as the class with highest probability (argmax on softmax_logits)
+            y_test_est = (torch.max(softmax_logits, dim=1)[1]).data.numpy()
+
+            # Determine errors
+            e = np.zeros_like(y_test)
+            # Determine errors
+            for i in range(len(y_test_est)):
+                if y_test_est[i] != y_test[i]:
+                    e[i] = 1
+
+            # The error rate for the ANN model is stored.
+            inner_ann_error_rate.append(np.mean(e).round(2))
+        inner_ann_error_rate_average = np.mean(inner_ann_error_rate)
+        if inner_ann_error_rate_average < inner_ann_error_rate_best:
+            inner_ann_error_rate_best = inner_ann_error_rate_average
+            n_hidden_unit_best = n_hidden_unit
+    
+    print('Training multinomial-regression model...')
     inner_mulreg_error_rate_best = np.inf
     strength_best = 0
     for strength in strengths:
-        # print(f'Testing strength: {strength}')
+        print(f'Strength: {strength}')
         inner_mulreg_error_rates = []
-        for inner_train_index, inner_test_index in inner_cv.split(outer_X_train):
+        for k, (inner_train_index, inner_test_index) in enumerate(inner_cv.split(outer_X_train)):
             '''
-            The inner loop is used for hyperparameter tuning
-            for the multi-regression model and the method-2 model
+            The inner loop is used for hyperparameter tuning the multi-regression model
             '''
 
+            print(f'Inner Fold {k+1}/{K}')
             # Inner fold sets are derived from the outer fold
-            inner_X_train, inner_X_test = outer_X_train.iloc[inner_train_index], outer_X_train.iloc[inner_test_index]
-            inner_y_train, inner_y_test = outer_y_train.iloc[inner_train_index], outer_y_train.iloc[inner_test_index]
-
-            # Done to avoid DataConversionWarning
-            inner_y_train = np.ravel(inner_y_train)
-            inner_y_test = np.ravel(inner_y_test)
+            inner_X_train, inner_X_test = outer_X_train[inner_train_index, :], outer_X_train[inner_test_index, :]
+            inner_y_train, inner_y_test = outer_y_train[inner_train_index], outer_y_train[inner_test_index]
             
             # The cla_mulreg.fit() function creates our multinomial regression model,
             # fits it to the training data, and returns the model.
@@ -85,23 +159,23 @@ for outer_train_index, outer_test_index in outer_cv.split(X):
             yhat_mulreg = yhat_mulreg.reshape(-1, 1) # This ensures that the shape of yhat_mulreg is the same as inner_y_test (n, 1)
 
             # The error rate for the multi-regression model is calculated.
-            inner_mulreg_error_rate = np.mean(yhat_mulreg != inner_y_test).round(2)
-            inner_mulreg_error_rates.append(inner_mulreg_error_rate)
+            inner_mulreg_error_rates.append(np.mean(yhat_mulreg != inner_y_test).round(2))
 
         inner_mulreg_error_rate_average = np.mean(inner_mulreg_error_rates)
         if inner_mulreg_error_rate_average < inner_mulreg_error_rate_best:
             inner_mulreg_error_rate_best = inner_mulreg_error_rate_average
             strength_best = strength
 
+    print('Evaluating models...')
+    # Convert y_test and y_train to 1d arrays
+    outer_y_test = np.reshape(outer_y_test, outer_y_test.size)
+    outer_y_train = np.reshape(outer_y_train, outer_y_train.size)
+
     # The baseline model is only tested on the outer test data
     # as the baseline model does not require hyperparameter tuning
     yhat_baseline = cla_baseline.predict(outer_y_test, outer_y_train)
     baseline_error_rate = np.mean(yhat_baseline != outer_y_test).round(2)
     baseline_error_rates.append(baseline_error_rate)
-    
-    # Done to avoid DataConversionWarning
-    outer_y_train = np.ravel(outer_y_train)
-    outer_y_test = np.ravel(outer_y_test)
 
     # The best strength is used to create a new model
     # that is trained on the outer training data, and tested on the outer test data
@@ -113,13 +187,51 @@ for outer_train_index, outer_test_index in outer_cv.split(X):
     mulreg_error_rate = np.mean(yhat_mulreg != outer_y_test).round(2)
     mulreg_error_rates.append(mulreg_error_rate)
     strengths_best.append(strength_best)
+    
+    # The best n_hidden_unit is used to create a new model
+    # that is trained on the outer training data, and tested on the outer test data
+    model = lambda: torch.nn.Sequential(
+        torch.nn.Linear(M, n_hidden_unit_best),  # M features to n hidden units
+        torch.nn.ReLU(),  # 1st transfer function,
+        torch.nn.Linear(n_hidden_unit_best, n_hidden_unit_best),  # n hidden units to n hidden units
+        torch.nn.ReLU(),  # 2nd transfer function,
+        torch.nn.Linear(n_hidden_unit_best, C),  # n hidden units to C output neuron, C = categories
+        torch.nn.Softmax(dim=1),  # final tranfer function
+    )
+
+    # Train the net on training data
+    net, _, _ = train_neural_net(
+        model,
+        loss_fn,
+        X=torch.tensor(X_train, dtype=torch.float),
+        y=torch.tensor(y_train, dtype=torch.long).view(-1),
+        n_replicates=n_replicates,
+        max_iter=max_iter,
+    )
+
+    # Determine probability of each class using trained network
+    softmax_logits = net(torch.tensor(X_test, dtype=torch.float))
+    # Get the estimated class as the class with highest probability (argmax on softmax_logits)
+    yhat_ann = (torch.max(softmax_logits, dim=1)[1]).data.numpy()
+
+    # Determine errors
+    e = np.zeros_like(y_test)
+    # Determine errors
+    for i in range(len(yhat_ann)):
+        if yhat_ann[i] != y_test[i]:
+            e[i] = 1
+    ann_error_rate = np.mean(e).round(2)
+    ann_error_rates.append(ann_error_rate)
+    n_hidden_units_best.append(n_hidden_unit_best)
 
 # Create table with outer fold error rates for each fold and model
 error_rates = pd.DataFrame({
     'Outer Fold': range(1, K+1),
     'Baseline E.R.': baseline_error_rates,
     'Multi. Reg. E.R.': mulreg_error_rates,
-    'Multi. Reg. Strength': strengths_best
+    'Multi. Reg. Strength': strengths_best,
+    'ANN E.R.': ann_error_rates,
+    'ANN Hidden Units': n_hidden_units_best
 })
 
 print(error_rates.to_string(index=False))
