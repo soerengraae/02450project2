@@ -1,31 +1,32 @@
 '''
 This script compares the performance of the baseline model,
-the multi-regression model, and the method-2 model.
+the multinomial-regression model, and the method-2 model (ANN).
 
 The comparison is made using the same dataset and a two-level cross-validation strategy.
 This ensures a fair comparison between the three models, when evaluated on the outer fold.
 '''
 
+from hmac import new
 import cla_baseline
 import cla_mulreg
-from data_fetch import automobile_id, getTargets, getFeatures, missingValues, categorical_features, numerical_features
+from data_fetch import automobile_id, getFeatures, missingValues, categorical_features, numerical_features
 import data_transformation
 import data_encoding
 import pandas as pd
 from sklearn.model_selection import KFold
+from sklearn.preprocessing import LabelEncoder
 import numpy as np
 import torch
 from dtuimldmtools import train_neural_net
 
 # Gather the data to be used
-X_cat = data_encoding.encode(getFeatures(automobile_id)[categorical_features])
-missing_values_cat = missingValues(X_cat)
-
+new_categorical_features = categorical_features.copy()
+new_categorical_features.remove('make') # Remove the target column from the features to seperate y from X
+X_cat = data_encoding.encode(getFeatures(automobile_id)[new_categorical_features])
 X_num = data_transformation.transform(getFeatures(automobile_id)[numerical_features])
-missing_values_num = missingValues(X_num)
 
 X = pd.concat([X_num, X_cat], axis=1)
-y = getTargets(automobile_id)
+y = getFeatures(automobile_id)['make']
 
 missing_values = missingValues(X)
 
@@ -33,16 +34,15 @@ missing_values = missingValues(X)
 X = X.drop(missing_values)
 y = y.drop(missing_values)
 
-# Reset the index so it goes from 0 to n-1
-X = X.reset_index(drop=True)
-y = y.reset_index(drop=True)
+# Initialize LabelEncoder to encode 'make'
+le = LabelEncoder()
 
-# Convert X and y to numpy arrays for easier use with torch
+# Fit and transform the target column
+y = le.fit_transform(y) # This converts y to an ArrayLike type
+y = np.array(y) # Convert to a proper NDArray type
+
+# Convert X to numpy array for use with torch
 X = X.to_numpy()
-y = y.to_numpy()
-
-y = y + 3 # Adjust to have no negative values
-y = np.reshape(y, y.size) # Reshape to 1d array
 
 # Convert booleans in X to floats, must be done to use with torch
 X = X.astype(float)
@@ -52,19 +52,21 @@ K = 5
 outer_cv = KFold(n_splits=K, shuffle=True)
 
 # Define the strength values to be tested
-strengths = np.power(10.0, range(-5, 9)) # From 10^-5 to 10^8
+strengths = np.power(10.0, range(-8, -2)) # From 10^-8 to 10^-1
 
 N, M = X.shape
-C = 7 # Number of classes len({-3, -2, -1, 0, 1, 2, 3})
+C = np.max(y) + 1 # Number of classes
 
-n_hidden_units = np.arange(14, 26, 2) # 14 to 24 hidden units
+n_hidden_units = np.arange(38, 43, 1)
 loss_fn = torch.nn.CrossEntropyLoss()
 max_iter = 10000
 n_replicates = 2
 
 baseline_error_rates = []
+
 mulreg_error_rates = []
 strengths_best = []
+
 ann_error_rates = []
 n_hidden_units_best = []
 
@@ -84,8 +86,6 @@ for i, (outer_train_index, outer_test_index) in enumerate(outer_cv.split(X, y)):
         model = lambda: torch.nn.Sequential(
             torch.nn.Linear(M, n_hidden_unit),  # M features to n hidden units
             torch.nn.ReLU(),  # 1st transfer function,
-            torch.nn.Linear(n_hidden_unit, n_hidden_unit),  # n hidden units to n hidden units
-            torch.nn.ReLU(),  # 2nd transfer function,
             torch.nn.Linear(n_hidden_unit, C),  # n hidden units to C output neuron, C = categories
             torch.nn.Softmax(dim=1),  # final tranfer function
         )
@@ -152,7 +152,7 @@ for i, (outer_train_index, outer_test_index) in enumerate(outer_cv.split(X, y)):
             
             # The cla_mulreg.fit() function creates our multinomial regression model,
             # fits it to the training data, and returns the model.
-            model_mulreg = cla_mulreg.fit(inner_X_train, inner_y_train, regularization=strength)
+            model_mulreg = cla_mulreg.fit(inner_X_train, inner_y_train, regularization=strength, max_iter=10000)
 
             # The model is then used to predict the classes of the test data.
             yhat_mulreg = cla_mulreg.predict(model_mulreg, inner_X_test)
@@ -179,7 +179,7 @@ for i, (outer_train_index, outer_test_index) in enumerate(outer_cv.split(X, y)):
 
     # The best strength is used to create a new model
     # that is trained on the outer training data, and tested on the outer test data
-    model_mulreg = cla_mulreg.fit(outer_X_train, outer_y_train, regularization=strength_best)
+    model_mulreg = cla_mulreg.fit(outer_X_train, outer_y_train, regularization=strength_best, max_iter=10000)
     yhat_mulreg = cla_mulreg.predict(model_mulreg, outer_X_test)
     yhat_mulreg = yhat_mulreg.reshape(-1, 1) # This ensures that the shape of yhat_mulreg is the same as outer_y_test (n, 1)
     
@@ -193,8 +193,6 @@ for i, (outer_train_index, outer_test_index) in enumerate(outer_cv.split(X, y)):
     model = lambda: torch.nn.Sequential(
         torch.nn.Linear(M, n_hidden_unit_best),  # M features to n hidden units
         torch.nn.ReLU(),  # 1st transfer function,
-        torch.nn.Linear(n_hidden_unit_best, n_hidden_unit_best),  # n hidden units to n hidden units
-        torch.nn.ReLU(),  # 2nd transfer function,
         torch.nn.Linear(n_hidden_unit_best, C),  # n hidden units to C output neuron, C = categories
         torch.nn.Softmax(dim=1),  # final tranfer function
     )
