@@ -6,7 +6,7 @@ The comparison is made using the same dataset and a two-level cross-validation s
 This ensures a fair comparison between the three models, when evaluated on the outer fold.
 '''
 
-from hmac import new
+import time
 import cla_baseline
 import cla_mulreg
 from data_fetch import automobile_id, getFeatures, missingValues, categorical_features, numerical_features
@@ -18,6 +18,9 @@ from sklearn.preprocessing import LabelEncoder
 import numpy as np
 import torch
 from dtuimldmtools import train_neural_net
+
+# Start the timer
+start_time = time.time()
 
 # Gather the data to be used
 new_categorical_features = categorical_features.copy()
@@ -49,7 +52,7 @@ X = X.astype(float)
 
 # Split dataset
 K = 5
-outer_cv = KFold(n_splits=K, shuffle=True)
+outer_cv = KFold(n_splits=K, shuffle=True, random_state=1)
 
 # Define the strength values to be tested
 strengths = np.power(10.0, range(-8, -2)) # From 10^-8 to 10^-1
@@ -57,7 +60,7 @@ strengths = np.power(10.0, range(-8, -2)) # From 10^-8 to 10^-1
 N, M = X.shape
 C = np.max(y) + 1 # Number of classes
 
-n_hidden_units = np.arange(38, 43, 1)
+n_hidden_units = np.arange(30, 42, 2)
 loss_fn = torch.nn.CrossEntropyLoss()
 max_iter = 10000
 n_replicates = 2
@@ -77,7 +80,7 @@ for i, (outer_train_index, outer_test_index) in enumerate(outer_cv.split(X, y)):
     outer_y_train, outer_y_test = y[outer_train_index], y[outer_test_index]
 
     # Create inner folds
-    inner_cv = KFold(n_splits=K, shuffle=True)
+    inner_cv = KFold(n_splits=K, shuffle=True, random_state=1)
 
     print('Training ANN model...')
     inner_ann_error_rate_best = np.inf
@@ -110,7 +113,7 @@ for i, (outer_train_index, outer_test_index) in enumerate(outer_cv.split(X, y)):
                 model,
                 loss_fn,
                 X=torch.tensor(X_train, dtype=torch.float),
-                y=torch.tensor(y_train, dtype=torch.long).view(-1),
+                y=torch.tensor(y_train, dtype=torch.long),
                 n_replicates=n_replicates,
                 max_iter=max_iter,
             )
@@ -202,7 +205,7 @@ for i, (outer_train_index, outer_test_index) in enumerate(outer_cv.split(X, y)):
         model,
         loss_fn,
         X=torch.tensor(X_train, dtype=torch.float),
-        y=torch.tensor(y_train, dtype=torch.long).view(-1),
+        y=torch.tensor(y_train, dtype=torch.long),
         n_replicates=n_replicates,
         max_iter=max_iter,
     )
@@ -233,3 +236,9 @@ error_rates = pd.DataFrame({
 })
 
 print(error_rates.to_string(index=False))
+
+# Stop the timer
+end_time = time.time()
+# Calculate the runtime
+runtime = end_time - start_time
+print(f"Runtime for the program was {runtime} seconds.")
