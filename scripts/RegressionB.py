@@ -24,23 +24,3 @@ for train_index, test_index in kf.split(X_cat):
     # Impute missing values in the training data
     imputer = SimpleImputer(strategy='mean')
     X_train_imputed = imputer.fit_transform(X_train)
-
-
-
-
-
-    
-
-
-
-
-
-
-
-
-
-
-
-
-
-
