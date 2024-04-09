@@ -18,6 +18,10 @@ from sklearn.preprocessing import LabelEncoder
 import numpy as np
 import torch
 from dtuimldmtools import train_neural_net
+from matplotlib import pyplot as plt
+from matplotlib import rc
+# Set the font to be 'Helvetica'
+rc('font', family='Helvetica')
 
 # Start the timer
 start_time = time.time()
@@ -55,12 +59,12 @@ K = 5
 outer_cv = KFold(n_splits=K, shuffle=True)
 
 # Define the strength values to be tested
-strengths = np.power(10.0, range(-20, -10)) + [0]
+strengths = np.power(10.0, range(-20, -10))
 
 N, M = X.shape
 C = np.max(y) + 1 # Number of classes
 
-n_hidden_units = np.arange(46, 55, 1)
+n_hidden_units = np.arange(58, 63, 1)
 loss_fn = torch.nn.CrossEntropyLoss()
 max_iter = 10000
 n_replicates = 2
@@ -235,7 +239,28 @@ error_rates = pd.DataFrame({
     'ANN Hidden Units': n_hidden_units_best
 })
 
-print(error_rates.to_string(index=False))
+# print(error_rates.to_string(index=False))
+
+# Convert strengths_best to scientific notation
+error_rates['Multi. Reg. Strength'] = error_rates['Multi. Reg. Strength'].apply(lambda x: "{:.2e}".format(x))
+
+# Export error_rates as table figure
+fig, ax = plt.subplots(figsize=(10, 2))
+ax.axis('tight')
+ax.axis('off')
+
+table = ax.table(cellText=error_rates.values.astype(str), 
+                colLabels=error_rates.columns,
+                cellLoc='center', 
+                loc='center')
+
+fig.suptitle("Comparison of Baseline, Method 2, and Logistic Regression", fontsize=12, y=0.9)
+table.auto_set_font_size(False)
+table.set_fontsize(8)
+table.scale(1, 1.5)
+plt.tight_layout()
+plt.savefig("exports/cla_comparison.png", dpi=500)
+plt.close()
 
 # Stop the timer
 end_time = time.time()
