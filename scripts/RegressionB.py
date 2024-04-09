@@ -1,7 +1,5 @@
 from sklearn.model_selection import KFold
 
-#Implement two-level cross-validation We will use 2-level cross-validation to compare the models with K1 = K2 = 10 folds As a baseline model, we will apply a linear regression model with nofeatures, i.e. it computes the mean of y on the training data, and use this value to predict y on the test data. Make sure you can fit an ANN model to the data. As complexity-controlling parameter for the ANN, we will use the number of hidden units5 h. Based on a few test-runs, select a reasonable range of values for h (which should include h = 1), and describe the range of values you will use for h and λ.
-
 from sklearn.metrics import mean_squared_error
 from sklearn.preprocessing import StandardScaler
 from sklearn.neural_network import MLPRegressor
@@ -11,9 +9,14 @@ import matplotlib.pyplot as plt
 from sklearn.impute import SimpleImputer
 import numpy as np
 
+
 # Load the data
 X_cat = data_encoding.encode(getFeatures(automobile_id)[categorical_features])
 y = getTargets(automobile_id)
+
+# Create an imputer object that replaces missing values with the mean value of each column
+imputer = SimpleImputer(missing_values=np.nan, strategy='mean')
+
 
 kf = KFold(n_splits=5)
 for train_index, test_index in kf.split(X_cat):
@@ -24,3 +27,100 @@ for train_index, test_index in kf.split(X_cat):
     # Impute missing values in the training data
     imputer = SimpleImputer(strategy='mean')
     X_train_imputed = imputer.fit_transform(X_train)
+
+    # Fit the linear regression model
+    y_train_mean = np.mean(y_train)
+    y_test_pred = np.full_like(y_test, y_train_mean)
+
+    # Calculate the mean squared error
+    mse = mean_squared_error(y_test, y_test_pred)
+
+imputer.fit(X_train)
+
+# Transform the training and test data
+X_train_imputed = imputer.transform(X_train)
+X_test_imputed = imputer.transform(X_test)
+
+
+
+# Set the range of values for h (number of hidden units)
+h_values = [1, 5, 10, 20, 50]
+
+# Set the range of values for λ (regularization parameter)
+lambda_values = [0.001, 0.01, 0.1, 1, 10]
+
+
+for h in h_values:
+    for lambda_val in lambda_values:
+        model = MLPRegressor(hidden_layer_sizes=(h,), alpha=lambda_val, max_iter=10000)
+        model.fit(X_train_imputed, y_train.values.ravel())  # Convert y_train to a numpy array before calling ravel()
+        
+        y_test_pred = model.predict(X_test_imputed)
+        mse = mean_squared_error(y_test, y_test_pred)
+        print(f"Number of hidden units: {h}, Regularization parameter: {lambda_val}")
+        print("Mean Squared Error:", mse)
+
+
+#Create a cross-validation table using 2-level cross-validation with 5 folds the table shall show the optimal value for h and lambda for each fold
+
+# Create a table to store the results
+results = np.zeros((5, 5))
+
+# Perform 2-level cross-validation
+kf_outer = KFold(n_splits=5)
+kf_inner = KFold(n_splits=5)
+
+for i, (train_index, test_index) in enumerate(kf_outer.split(X_cat)):
+    X_train, X_test = X_cat.iloc[train_index], X_cat.iloc[test_index]
+    y_train, y_test = y.iloc[train_index], y.iloc[test_index]
+
+    for j, (train_index_inner, test_index_inner) in enumerate(kf_inner.split(X_train)):
+        X_train_inner, X_test_inner = X_train.iloc[train_index_inner], X_train.iloc[test_index_inner]
+        y_train_inner, y_test_inner = y.iloc[train_index_inner], y.iloc[test_index_inner]
+
+        # Impute missing values in the training data
+        imputer = SimpleImputer(strategy='mean')
+        X_train_inner_imputed = imputer.fit_transform(X_train_inner)
+
+        # Fit the linear regression model
+        y_train_inner_mean = np.mean(y_train_inner)
+        y_test_inner_pred = np.full_like(y_test_inner, y_train_inner_mean)
+
+        # Calculate the mean squared error
+        mse_inner = mean_squared_error(y_test_inner, y_test_inner_pred)
+
+        imputer.fit(X_train_inner)
+
+        # Transform the training and test data
+        X_train_inner_imputed = imputer.transform(X_train_inner)
+        X_test_inner_imputed = imputer.transform(X_test_inner)
+
+        for h in h_values:
+            for lambda_val in lambda_values:
+                model = MLPRegressor(hidden_layer_sizes=(h,), alpha=lambda_val, max_iter=10000)
+                model.fit(X_train_inner_imputed, y_train_inner.values.ravel())
+
+                y_test_inner_pred = model.predict(X_test_inner_imputed)
+                mse_inner = mean_squared_error(y_test_inner, y_test_inner_pred)
+
+                results[i, j] = mse_inner
+
+# Find the optimal value for h and λ for each fold
+optimal_h_values = []
+optimal_lambda_values = []
+
+for i in range(5):
+    min_mse = np.min(results[i])
+    min_mse_index = np.where(results[i] == min_mse)
+    optimal_h_values.append(h_values[min_mse_index[0][0] // 5])
+    optimal_lambda_values.append(lambda_values[min_mse_index[0][0] % 5])
+
+
+# Plot the results
+plt.figure()
+plt.plot(range(1, 6), optimal_h_values, label='Optimal h')
+plt.plot(range(1, 6), optimal_lambda_values, label='Optimal λ')
+plt.xlabel('Fold')
+plt.ylabel('Value')
+plt.legend()
+plt.show()
