@@ -59,3 +59,70 @@ for h in h_values:
         mse = mean_squared_error(y_test, y_test_pred)
         print(f"Number of hidden units: {h}, Regularization parameter: {lambda_val}")
         print("Mean Squared Error:", mse)
+
+
+#Create a cross-validation table using 2-level cross-validation with 5 folds the table shall show the optimal value for h and lambda for each fold
+
+# Create a table to store the results
+results = np.zeros((5, 5))
+
+# Perform 2-level cross-validation
+kf_outer = KFold(n_splits=5)
+kf_inner = KFold(n_splits=5)
+
+for i, (train_index, test_index) in enumerate(kf_outer.split(X_cat)):
+    X_train, X_test = X_cat.iloc[train_index], X_cat.iloc[test_index]
+    y_train, y_test = y.iloc[train_index], y.iloc[test_index]
+
+    for j, (train_index_inner, test_index_inner) in enumerate(kf_inner.split(X_train)):
+        X_train_inner, X_test_inner = X_train.iloc[train_index_inner], X_train.iloc[test_index_inner]
+        y_train_inner, y_test_inner = y.iloc[train_index_inner], y.iloc[test_index_inner]
+
+        # Impute missing values in the training data
+        imputer = SimpleImputer(strategy='mean')
+        X_train_inner_imputed = imputer.fit_transform(X_train_inner)
+
+        # Fit the linear regression model
+        y_train_inner_mean = np.mean(y_train_inner)
+        y_test_inner_pred = np.full_like(y_test_inner, y_train_inner_mean)
+
+        # Calculate the mean squared error
+        mse_inner = mean_squared_error(y_test_inner, y_test_inner_pred)
+
+        imputer.fit(X_train_inner)
+
+        # Transform the training and test data
+        X_train_inner_imputed = imputer.transform(X_train_inner)
+        X_test_inner_imputed = imputer.transform(X_test_inner)
+
+        for h in h_values:
+            for lambda_val in lambda_values:
+                model = MLPRegressor(hidden_layer_sizes=(h,), alpha=lambda_val, max_iter=10000)
+                model.fit(X_train_inner_imputed, y_train_inner.values.ravel())
+
+                y_test_inner_pred = model.predict(X_test_inner_imputed)
+                mse_inner = mean_squared_error(y_test_inner, y_test_inner_pred)
+
+                results[i, j] = mse_inner
+
+# Find the optimal value for h and λ for each fold
+optimal_h_values = []
+optimal_lambda_values = []
+
+for i in range(5):
+    min_mse = np.min(results[i])
+    min_mse_index = np.where(results[i] == min_mse)
+    optimal_h_values.append(h_values[min_mse_index[0][0] // 5])
+    optimal_lambda_values.append(lambda_values[min_mse_index[0][0] % 5])
+
+
+# Plot the results
+plt.figure()
+plt.plot(range(1, 6), optimal_h_values, label='Optimal h')
+plt.plot(range(1, 6), optimal_lambda_values, label='Optimal λ')
+plt.xlabel('Fold')
+plt.ylabel('Value')
+plt.legend()
+plt.show()
+
+
