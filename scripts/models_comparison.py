@@ -52,15 +52,15 @@ X = X.astype(float)
 
 # Split dataset
 K = 5
-outer_cv = KFold(n_splits=K, shuffle=True, random_state=1)
+outer_cv = KFold(n_splits=K, shuffle=True)
 
 # Define the strength values to be tested
-strengths = np.power(10.0, range(-8, -2)) # From 10^-8 to 10^-1
+strengths = np.power(10.0, range(-20, -10)) + [0]
 
 N, M = X.shape
 C = np.max(y) + 1 # Number of classes
 
-n_hidden_units = np.arange(30, 42, 2)
+n_hidden_units = np.arange(46, 55, 1)
 loss_fn = torch.nn.CrossEntropyLoss()
 max_iter = 10000
 n_replicates = 2
@@ -80,7 +80,7 @@ for i, (outer_train_index, outer_test_index) in enumerate(outer_cv.split(X, y)):
     outer_y_train, outer_y_test = y[outer_train_index], y[outer_test_index]
 
     # Create inner folds
-    inner_cv = KFold(n_splits=K, shuffle=True, random_state=1)
+    inner_cv = KFold(n_splits=K, shuffle=True)
 
     print('Training ANN model...')
     inner_ann_error_rate_best = np.inf
@@ -148,7 +148,7 @@ for i, (outer_train_index, outer_test_index) in enumerate(outer_cv.split(X, y)):
             The inner loop is used for hyperparameter tuning the multi-regression model
             '''
 
-            print(f'Inner Fold {k+1}/{K}')
+            # print(f'Inner Fold {k+1}/{K}')
             # Inner fold sets are derived from the outer fold
             inner_X_train, inner_X_test = outer_X_train[inner_train_index, :], outer_X_train[inner_test_index, :]
             inner_y_train, inner_y_test = outer_y_train[inner_train_index], outer_y_train[inner_test_index]
@@ -225,7 +225,7 @@ for i, (outer_train_index, outer_test_index) in enumerate(outer_cv.split(X, y)):
     ann_error_rates.append(ann_error_rate)
     n_hidden_units_best.append(n_hidden_unit_best)
 
-# Create table with outer fold error rates for each fold and model
+# Create table with outer fold error rates for each model
 error_rates = pd.DataFrame({
     'Outer Fold': range(1, K+1),
     'Baseline E.R.': baseline_error_rates,
