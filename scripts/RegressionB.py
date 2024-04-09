@@ -61,8 +61,9 @@ for h in h_values:
         print("Mean Squared Error:", mse)
 
 
-#Create a cross-validation table using 2-level cross-validation with 5 folds the table shall show the optimal value for h and lambda for each fold
 
+
+#Create a table that shows the optimal value for h and lambda for each fold as well as the estimated generalization errors also baseline test error
 # Create a table to store the results
 results = np.zeros((5, 5))
 
@@ -108,19 +109,27 @@ for i, (train_index, test_index) in enumerate(kf_outer.split(X_cat)):
 # Find the optimal value for h and λ for each fold
 optimal_h_values = []
 optimal_lambda_values = []
+generalization_errors = []
+
 
 for i in range(5):
     min_mse = np.min(results[i])
     min_mse_index = np.where(results[i] == min_mse)
     optimal_h_values.append(h_values[min_mse_index[0][0] // 5])
     optimal_lambda_values.append(lambda_values[min_mse_index[0][0] % 5])
+    generalization_errors.append(min_mse)
+
+# Calculate the baseline test error
+baseline_test_error = y_test_pred
+
+# Print the results
+print("Fold\tOptimal h\tOptimal λ\tGeneralization Error")
+for i in range(5):
+    print(f"{i+1}\t{optimal_h_values[i]}\t{optimal_lambda_values[i]}\t{generalization_errors[i]}")
+print(f"Baseline test error: {baseline_test_error}")
 
 
-# Plot the results
-plt.figure()
-plt.plot(range(1, 6), optimal_h_values, label='Optimal h')
-plt.plot(range(1, 6), optimal_lambda_values, label='Optimal λ')
-plt.xlabel('Fold')
-plt.ylabel('Value')
-plt.legend()
-plt.show()
+
+
+
+    
