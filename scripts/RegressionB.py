@@ -130,17 +130,6 @@ print(f"Baseline test error: {baseline_test_error}")
 
 
 
-<<<<<<< HEAD
 
 
     
-=======
-# Plot the results
-plt.figure()
-plt.plot(range(1, 6), optimal_h_values, label='Optimal h')
-plt.plot(range(1, 6), optimal_lambda_values, label='Optimal λ')
-plt.xlabel('Fold')
-plt.ylabel('Value')
-plt.legend()
-plt.show()
->>>>>>> 49dce30c4cfc3a4a256ef44c0796d8185cdd2fc6
