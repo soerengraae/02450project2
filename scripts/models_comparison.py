@@ -18,10 +18,6 @@ from sklearn.preprocessing import LabelEncoder
 import numpy as np
 import torch
 from dtuimldmtools import train_neural_net
-from matplotlib import pyplot as plt
-from matplotlib import rc
-# Set the font to be 'Helvetica'
-rc('font', family='Helvetica')
 
 # Start the timer
 start_time = time.time()
@@ -59,7 +55,7 @@ K = 5
 outer_cv = KFold(n_splits=K, shuffle=True)
 
 # Define the strength values to be tested
-strengths = np.power(10.0, range(-20, -10))
+strengths = np.power(10.0, range(-18, 0))
 
 N, M = X.shape
 C = np.max(y) + 1 # Number of classes
@@ -98,7 +94,7 @@ for i, (outer_train_index, outer_test_index) in enumerate(outer_cv.split(X, y)):
         )
 
         inner_ann_error_rate = []
-        for k, (inner_train_index, inner_test_index) in enumerate(inner_cv.split(outer_X_train, outer_y_train)):
+        for k, (inner_train_index, inner_test_index) in enumerate(inner_cv.split(outer_X_train)):
             '''
             The inner loop is used for hyperparameter tuning the ANN model
             '''
@@ -239,28 +235,28 @@ error_rates = pd.DataFrame({
     'ANN Hidden Units': n_hidden_units_best
 })
 
-# print(error_rates.to_string(index=False))
-
 # Convert strengths_best to scientific notation
 error_rates['Multi. Reg. Strength'] = error_rates['Multi. Reg. Strength'].apply(lambda x: "{:.2e}".format(x))
+print(error_rates.to_string(index=False))
+error_rates.to_csv('exports/cla_comparison.csv', index=False)
 
-# Export error_rates as table figure
-fig, ax = plt.subplots(figsize=(10, 2))
-ax.axis('tight')
-ax.axis('off')
+# # Export error_rates as table figure
+# fig, ax = plt.subplots(figsize=(10, 2))
+# ax.axis('tight')
+# ax.axis('off')
 
-table = ax.table(cellText=error_rates.values.astype(str), 
-                colLabels=error_rates.columns,
-                cellLoc='center', 
-                loc='center')
+# table = ax.table(cellText=error_rates.values.astype(str), 
+#                 colLabels=error_rates.columns,
+#                 cellLoc='center', 
+#                 loc='center')
 
-fig.suptitle("Comparison of Baseline, Method 2, and Logistic Regression", fontsize=12, y=0.9)
-table.auto_set_font_size(False)
-table.set_fontsize(8)
-table.scale(1, 1.5)
-plt.tight_layout()
-plt.savefig("exports/cla_comparison.png", dpi=500)
-plt.close()
+# fig.suptitle("Comparison of Baseline, Method 2, and Logistic Regression", fontsize=12, y=0.9)
+# table.auto_set_font_size(False)
+# table.set_fontsize(8)
+# table.scale(1, 1.5)
+# plt.tight_layout()
+# plt.savefig("exports/cla_comparison.png", dpi=500)
+# plt.close()
 
 # Stop the timer
 end_time = time.time()
