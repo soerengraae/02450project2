@@ -37,6 +37,7 @@ missing_values = missingValues(X)
 
 # Drop missing values
 X = X.drop(missing_values)
+attributeNames = X.columns
 y = y.drop(missing_values)
 
 # Initialize LabelEncoder to encode 'make'
@@ -77,6 +78,7 @@ n_hidden_units_best = []
 
 yhat = []
 y_true = []
+w_rlr = np.zeros((M, K))
 for i, (outer_train_index, outer_test_index) in enumerate(outer_cv.split(X, y)):
     print(f'Outer Fold {i+1}/{K}')
     
@@ -193,6 +195,7 @@ for i, (outer_train_index, outer_test_index) in enumerate(outer_cv.split(X, y)):
     yhat_mulreg = cla_mulreg.predict(model_mulreg, outer_X_test)
     dy.append(yhat_mulreg)
     yhat_mulreg = yhat_mulreg.reshape(-1, 1) # This ensures that the shape of yhat_mulreg is the same as outer_y_test (n, 1)
+    w_rlr[:, i] = cla_mulreg.estimate_weights(outer_X_train, outer_y_train, strength_best, M)
     
     # The error rate for the multi-regression model is calculated.
     mulreg_error_rate = np.mean(yhat_mulreg != outer_y_test).round(2)
@@ -255,6 +258,10 @@ error_rates = pd.DataFrame({
 error_rates['Multi. Reg. Strength'] = error_rates['Multi. Reg. Strength'].apply(lambda x: "{:.2e}".format(x))
 print(error_rates.to_string(index=False))
 error_rates.to_csv('exports/cla_comparison.csv', index=False)
+
+print("Weights in last fold:")
+for m in range(M):
+    print("{:>15} {:>15}".format(attributeNames[m], np.round(w_rlr[m, -1], 2)))
 
 # Statistically evaluate the three models pairwise using McNemar's test
 yhat = np.concatenate(yhat)
