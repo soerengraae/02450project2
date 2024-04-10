@@ -15,7 +15,7 @@ def estimate_weights(X_train, y_train, opt_lambda, M):
 
     # Estimate weights for the optimal value of lambda, on entire training set
     lambdaI = opt_lambda * np.eye(M)
-    lambdaI[0, 0] = 0  # Do no regularize the bias term
+    lambdaI[0, 0] = 0
     return np.linalg.solve(XtX + lambdaI, Xty).squeeze()
 
 def fit(X_train, y_train, max_iter=1000, regularization=1):

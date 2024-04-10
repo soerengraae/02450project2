@@ -134,9 +134,9 @@ for i, (outer_train_index, outer_test_index) in enumerate(outer_cv.split(X, y)):
             # Determine errors
             e = np.zeros_like(y_test)
             # Determine errors
-            for i in range(len(y_test_est)):
-                if y_test_est[i] != y_test[i]:
-                    e[i] = 1
+            for j in range(len(y_test_est)):
+                if y_test_est[j] != y_test[j]:
+                    e[j] = 1
 
             # The error rate for the ANN model is stored.
             inner_ann_error_rate.append(np.mean(e).round(2))
@@ -229,9 +229,9 @@ for i, (outer_train_index, outer_test_index) in enumerate(outer_cv.split(X, y)):
 
     # Determine errors
     e = np.zeros_like(outer_y_test)
-    for i in range(len(yhat_ann)):
-        if yhat_ann[i] != outer_y_test[i]:
-            e[i] = 1
+    for j in range(len(yhat_ann)):
+        if yhat_ann[j] != outer_y_test[j]:
+            e[j] = 1
     ann_error_rate = np.mean(e).round(2)
     ann_error_rates.append(ann_error_rate)
     n_hidden_units_best.append(n_hidden_unit_best)
