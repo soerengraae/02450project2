@@ -17,10 +17,12 @@ from sklearn.model_selection import KFold
 from sklearn.preprocessing import LabelEncoder
 import numpy as np
 import torch
-from dtuimldmtools import train_neural_net
+from dtuimldmtools import train_neural_net, mcnemar
 
 # Start the timer
 start_time = time.time()
+
+# --------------------------------------------------------------
 
 # Gather the data to be used
 new_categorical_features = categorical_features.copy()
@@ -55,12 +57,12 @@ K = 5
 outer_cv = KFold(n_splits=K, shuffle=True)
 
 # Define the strength values to be tested
-strengths = np.power(10.0, range(-20, -10)) + [0]
+strengths = np.power(10.0, range(-18, 0))
 
 N, M = X.shape
 C = np.max(y) + 1 # Number of classes
 
-n_hidden_units = np.arange(46, 55, 1)
+n_hidden_units = np.arange(112, 117, 1)
 loss_fn = torch.nn.CrossEntropyLoss()
 max_iter = 10000
 n_replicates = 2
@@ -73,12 +75,16 @@ strengths_best = []
 ann_error_rates = []
 n_hidden_units_best = []
 
+yhat = []
+y_true = []
 for i, (outer_train_index, outer_test_index) in enumerate(outer_cv.split(X, y)):
     print(f'Outer Fold {i+1}/{K}')
     
     outer_X_train, outer_X_test = X[outer_train_index, :], X[outer_test_index, :]
     outer_y_train, outer_y_test = y[outer_train_index], y[outer_test_index]
 
+    dy = []
+    
     # Create inner folds
     inner_cv = KFold(n_splits=K, shuffle=True)
 
@@ -94,7 +100,7 @@ for i, (outer_train_index, outer_test_index) in enumerate(outer_cv.split(X, y)):
         )
 
         inner_ann_error_rate = []
-        for k, (inner_train_index, inner_test_index) in enumerate(inner_cv.split(outer_X_train, outer_y_train)):
+        for k, (inner_train_index, inner_test_index) in enumerate(inner_cv.split(outer_X_train)):
             '''
             The inner loop is used for hyperparameter tuning the ANN model
             '''
@@ -177,6 +183,7 @@ for i, (outer_train_index, outer_test_index) in enumerate(outer_cv.split(X, y)):
     # The baseline model is only tested on the outer test data
     # as the baseline model does not require hyperparameter tuning
     yhat_baseline = cla_baseline.predict(outer_y_test, outer_y_train)
+    dy.append(yhat_baseline)
     baseline_error_rate = np.mean(yhat_baseline != outer_y_test).round(2)
     baseline_error_rates.append(baseline_error_rate)
 
@@ -184,6 +191,7 @@ for i, (outer_train_index, outer_test_index) in enumerate(outer_cv.split(X, y)):
     # that is trained on the outer training data, and tested on the outer test data
     model_mulreg = cla_mulreg.fit(outer_X_train, outer_y_train, regularization=strength_best, max_iter=10000)
     yhat_mulreg = cla_mulreg.predict(model_mulreg, outer_X_test)
+    dy.append(yhat_mulreg)
     yhat_mulreg = yhat_mulreg.reshape(-1, 1) # This ensures that the shape of yhat_mulreg is the same as outer_y_test (n, 1)
     
     # The error rate for the multi-regression model is calculated.
@@ -204,26 +212,34 @@ for i, (outer_train_index, outer_test_index) in enumerate(outer_cv.split(X, y)):
     net, _, _ = train_neural_net(
         model,
         loss_fn,
-        X=torch.tensor(X_train, dtype=torch.float),
-        y=torch.tensor(y_train, dtype=torch.long),
+        X=torch.tensor(outer_X_train, dtype=torch.float),
+        y=torch.tensor(outer_y_train, dtype=torch.long),
         n_replicates=n_replicates,
         max_iter=max_iter,
     )
 
     # Determine probability of each class using trained network
-    softmax_logits = net(torch.tensor(X_test, dtype=torch.float))
+    softmax_logits = net(torch.tensor(outer_X_test, dtype=torch.float))
     # Get the estimated class as the class with highest probability (argmax on softmax_logits)
     yhat_ann = (torch.max(softmax_logits, dim=1)[1]).data.numpy()
+    dy.append(yhat_ann)
 
     # Determine errors
-    e = np.zeros_like(y_test)
-    # Determine errors
+    e = np.zeros_like(outer_y_test)
     for i in range(len(yhat_ann)):
-        if yhat_ann[i] != y_test[i]:
+        if yhat_ann[i] != outer_y_test[i]:
             e[i] = 1
     ann_error_rate = np.mean(e).round(2)
     ann_error_rates.append(ann_error_rate)
     n_hidden_units_best.append(n_hidden_unit_best)
+
+    print(f'yhat_baseline.shape: {yhat_baseline.shape}')
+    print(f'yhat_mulreg.shape: {yhat_mulreg.shape}')
+    print(f'yhat_ann.shape: {yhat_ann.shape}')
+    
+    dy = np.stack(dy, axis=1)
+    yhat.append(dy)
+    y_true.append(outer_y_test)
 
 # Create table with outer fold error rates for each model
 error_rates = pd.DataFrame({
@@ -235,10 +251,30 @@ error_rates = pd.DataFrame({
     'ANN Hidden Units': n_hidden_units_best
 })
 
+# Convert strengths_best to scientific notation
+error_rates['Multi. Reg. Strength'] = error_rates['Multi. Reg. Strength'].apply(lambda x: "{:.2e}".format(x))
 print(error_rates.to_string(index=False))
+error_rates.to_csv('exports/cla_comparison.csv', index=False)
+
+# Statistically evaluate the three models pairwise using McNemar's test
+yhat = np.concatenate(yhat)
+y_true = np.concatenate(y_true)
+
+alpha = 0.05
+
+[thetahat, CI, p] = mcnemar(y_true, yhat[:, 0], yhat[:, 1], alpha=alpha)
+print("theta = theta_Base - theta_Mulreg point estimate", thetahat, " CI: ", CI, "p-value", p)
+
+[thetahat, CI, p] = mcnemar(y_true, yhat[:, 0], yhat[:, 2], alpha=alpha)
+print("theta = theta_Base - theta_ANN point estimate", thetahat, " CI: ", CI, "p-value", p)
+
+[thetahat, CI, p] = mcnemar(y_true, yhat[:, 1], yhat[:, 2], alpha=alpha)
+print("theta = theta_Mulreg - theta_ANN point estimate", thetahat, " CI: ", CI, "p-value", p)
+
+# --------------------------------------------------------------
 
 # Stop the timer
 end_time = time.time()
 # Calculate the runtime
 runtime = end_time - start_time
-print(f"Runtime for the program was {runtime} seconds.")
+print(f"\nRuntime for the program was {runtime} seconds.")
