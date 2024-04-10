@@ -200,3 +200,35 @@ for train_index, test_index in kf.split(X_cat_scaled):
 print("MLP MSE, Baseline MSE, Linear MSE")
 for result in results:
     print(result)
+
+# Your existing code for cross-validation and model evaluation
+# After running your models and storing the MSEs in 'results'
+
+# Now, perform the paired t-test for MLP vs. Linear Regression
+from scipy.stats import ttest_rel
+
+# Extract the MSEs for MLP and Linear Regression from your results
+mlp_mse = [result[0] for result in results]  # MLP MSEs
+linear_mse = [result[2] for result in results]  # Linear Regression MSEs
+
+# Perform the paired t-test between MLP and Linear Regression
+t_stat, p_value = ttest_rel(mlp_mse, linear_mse)
+
+# Output the results
+print(f"t-statistic: {t_stat}, p-value: {p_value}")
+
+mlp_mse = [result[0] for result in results]  # MLP MSEs
+baseline_mse = [result[1] for result in results]  # Baseline MSEs
+
+from scipy.stats import ttest_rel
+t_stat, p_value = ttest_rel(mlp_mse, baseline_mse)
+
+print(f"t-statistic: {t_stat}, p-value: {p_value}")
+
+linear_mse = [result[2] for result in results]  # Linear Regression MSEs
+baseline_mse = [result[1] for result in results]  # Baseline MSEs
+
+from scipy.stats import ttest_rel
+t_stat, p_value = ttest_rel(linear_mse, baseline_mse)
+
+print(f"t-statistic: {t_stat}, p-value: {p_value}")
