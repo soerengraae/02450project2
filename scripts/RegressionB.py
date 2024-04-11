@@ -145,6 +145,7 @@ import data_encoding
 import numpy as np
 from sklearn.linear_model import LinearRegression, Ridge
 from sklearn.impute import SimpleImputer
+from scipy.stats import ttest_rel
 
 # Load and encode the data
 X_cat = data_encoding.encode(getFeatures(automobile_id)[categorical_features])
@@ -201,12 +202,7 @@ print("MLP MSE, Baseline MSE, Linear MSE")
 for result in results:
     print(result)
 
-# Your existing code for cross-validation and model evaluation
-# After running your models and storing the MSEs in 'results'
-
 # Now, perform the paired t-test for MLP vs. Linear Regression
-from scipy.stats import ttest_rel
-
 # Extract the MSEs for MLP and Linear Regression from your results
 mlp_mse = [result[0] for result in results]  # MLP MSEs
 linear_mse = [result[2] for result in results]  # Linear Regression MSEs
@@ -220,7 +216,6 @@ print(f"t-statistic: {t_stat}, p-value: {p_value}")
 mlp_mse = [result[0] for result in results]  # MLP MSEs
 baseline_mse = [result[1] for result in results]  # Baseline MSEs
 
-from scipy.stats import ttest_rel
 t_stat, p_value = ttest_rel(mlp_mse, baseline_mse)
 
 print(f"t-statistic: {t_stat}, p-value: {p_value}")
@@ -228,7 +223,6 @@ print(f"t-statistic: {t_stat}, p-value: {p_value}")
 linear_mse = [result[2] for result in results]  # Linear Regression MSEs
 baseline_mse = [result[1] for result in results]  # Baseline MSEs
 
-from scipy.stats import ttest_rel
 t_stat, p_value = ttest_rel(linear_mse, baseline_mse)
 
 print(f"t-statistic: {t_stat}, p-value: {p_value}")
